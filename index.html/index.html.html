@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ASCII Potato Chip Bomb</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icon.png">
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js');
+      });
+    }
+  </script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      background-color: #000000;
+      overflow: hidden;
+      font-family: monospace;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    /* ==========================================================================
+       ASCII POTATO CHIP BOMB - STRICT ZERO UI TEXT GAME ENGINE
+       ========================================================================== */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Glyph palette strictly for 3D procedural objects & particle physics
+    const ASCII_GLYPHS = ["@", "#", "%", "&", "*", "+", "=", "~", ":", ".", "✦"];
+    const BOMB_GLYPHS = ["✦", "✹", "#", "@", "*", "+"];
+    const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+    /* --------------------------------------------------------------------------
+       MINECRAFT PIXEL ART HEART MATRIX DEFINITIONS (Vector pixel drawing)
+       0: Transparent, 1: Black Outline (#000), 2: White Specular (#FFF),
+       3: Crimson Fill (#FF1E42), 4: Dark Crimson Shadow (#B80D2A), 5: Empty Gray (#262626)
+       -------------------------------------------------------------------------- */
+    const MINECRAFT_HEART_MATRIX = [
+      [0,1,1,0,0,1,1,0],
+      [1,2,3,1,1,3,3,1],
+      [1,2,3,3,3,3,4,1],
+      [1,3,3,3,3,3,4,1],
+      [0,1,3,3,3,4,1,0],
+      [0,0,1,3,4,1,0,0],
+      [0,0,0,1,1,0,0,0]
+    ];
+
+    /* --------------------------------------------------------------------------
+       SYNTHESIZED WEB AUDIO API (Zero external assets)
+       -------------------------------------------------------------------------- */
+    class SoundEngine {
+      constructor() { this.ctx = null; }
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      playFlip() {
+        this.init(); if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(320, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, this.ctx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start(); osc.stop(this.ctx.currentTime + 0.08);
+      }
+      playCrunch() {
+        this.init(); if (!this.ctx) return;
+        const bufSize = this.ctx.sampleRate * 0.12;
+        const buffer = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'highpass'; filter.frequency.value = 1600;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
+        noise.connect(filter); filter.connect(gain); gain.connect(this.ctx.destination);
+        noise.start();
+      }
+      playBoom() {
+        this.init(); if (!this.ctx) return;
+        // Sub-bass thump
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(190, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(22, this.ctx.currentTime + 0.65);
+        gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.65);
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start(); osc.stop(this.ctx.currentTime + 0.65);
+
+        // Crackle Noise
+        const bufSize = this.ctx.sampleRate * 0.45;
+        const buffer = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const nGain = this.ctx.createGain();
+        nGain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        nGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.45);
+        noise.connect(nGain); nGain.connect(this.ctx.destination);
+        noise.start();
+      }
+      playWinChime() {
+        this.init(); if (!this.ctx) return;
+        const freqs = [523.25, 659.25, 783.99, 1046.50];
+        freqs.forEach((f, idx) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = f;
+          const startTime = this.ctx.currentTime + idx * 0.1;
+          gain.gain.setValueAtTime(0.25, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.4);
+          osc.connect(gain); gain.connect(this.ctx.destination);
+          osc.start(startTime); osc.stop(startTime + 0.4);
+        });
+      }
+    }
+    const sfx = new SoundEngine();
+
+    /* --------------------------------------------------------------------------
+       GAME STATE MANAGEMENT
+       States: 'SETUP_P1' (Red places on Red side), 'SETUP_P2' (Blue places on Blue side),
+               'BATTLE', 'GAME_OVER'
+       -------------------------------------------------------------------------- */
+    let gameState = 'SETUP_P1';
+    let redHearts = 3;
+    let blueHearts = 3;
+    let redBombsPlaced = [];   // Indices 0..8
+    let blueBombsPlaced = [];  // Indices 0..8
+    let activeTurn = 'RED';    // 'RED' or 'BLUE'
+
+    let shakeTimer = 0;
+    let pointerPos = { x: -1000, y: -1000 };
+
+    let particles = [];
+    let shockwaves = [];
+    let fallingHearts = [];
+    let heartWobbles = { red: [0,0,0], blue: [0,0,0] }; // Shake timers for heart loss
+
+    /* --------------------------------------------------------------------------
+       3D PROCEDURAL GEOMETRY GENERATION
+       -------------------------------------------------------------------------- */
+    function createChip3DPoints() {
+      const points = [];
+      const totalPoints = 480;
+      for (let i = 0; i < totalPoints; i++) {
+        const rRatio = Math.sqrt(i / totalPoints);
+        const theta = i * GOLDEN_ANGLE;
+        const u = rRatio * Math.cos(theta) * 1.35;
+        const v = rRatio * Math.sin(theta) * 0.92;
+
+        // Hyperbolic paraboloid (saddle shape) + sine crinkle ridges
+        const zSaddle = 0.42 * (u * u - 1.2 * v * v);
+        const zRipple = 0.11 * Math.sin(10.0 * u + 2.5 * v);
+        const z = zSaddle + zRipple;
+
+        // Normal vectors for lighting calculations
+        const nx = -0.85 * u;
+        const ny = 1.1 * v;
+        const nz = 1.0;
+        const len = Math.hypot(nx, ny, nz);
+
+        points.push({
+          u, v, x: u, y: v, z,
+          nx: nx / len, ny: ny / len, nz: nz / len,
+          charIdx: Math.floor(Math.random() * ASCII_GLYPHS.length)
+        });
+      }
+      return points;
+    }
+
+    function createBomb3DPoints() {
+      const points = [];
+      const total = 200;
+      for (let i = 0; i < total; i++) {
+        const phi = Math.acos(-1 + (2 * i) / total);
+        const theta = Math.sqrt(total * Math.PI) * phi;
+        const r = 0.82;
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+        points.push({
+          x, y, z,
+          char: BOMB_GLYPHS[Math.floor(Math.random() * BOMB_GLYPHS.length)]
+        });
+      }
+      // Fuse top points
+      for (let f = 0; f < 20; f++) {
+        const t = f / 20;
+        points.push({
+          x: 0.18 * Math.sin(t * 3),
+          y: -0.82 - t * 0.55,
+          z: 0.1 * Math.cos(t * 3),
+          char: f > 15 ? '✦' : '*'
+        });
+      }
+      return points;
+    }
+
+    const bombGeometry = createBomb3DPoints();
+    let chips = [];
+
+    function initChips() {
+      chips = [];
+      for (let sideIdx = 0; sideIdx < 2; sideIdx++) {
+        const side = sideIdx === 0 ? 'red' : 'blue';
+        for (let row = 0; row < 3; row++) {
+          for (let col = 0; col < 3; col++) {
+            const index = row * 3 + col;
+            chips.push({
+              side,
+              index,
+              globalIdx: sideIdx * 9 + index,
+              row, col,
+              points: createChip3DPoints(),
+              rotX: 0.42 + Math.random() * 0.12,
+              rotY: Math.random() * Math.PI * 2,
+              currentSpeed: 0.015 + Math.random() * 0.004,
+              baseSpeed: 0.015 + Math.random() * 0.004,
+              flipAngle: 0,
+              targetFlipAngle: 0,
+              isHovered: false,
+              picked: false,
+              dissolve: 1.0,
+              hasBomb: false
+            });
+          }
+        }
+      }
+    }
+
+    /* --------------------------------------------------------------------------
+       PARTICLE PHYSICS & EXPLOSION EFFECTS
+       -------------------------------------------------------------------------- */
+    function spawnSafeParticles(x, y) {
+      for (let i = 0; i < 28; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 7.5 + 2;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 2,
+          char: ASCII_GLYPHS[Math.floor(Math.random() * ASCII_GLYPHS.length)],
+          color: '#ffd166',
+          alpha: 1.0,
+          decay: 0.022 + Math.random() * 0.03,
+          scale: 14 + Math.random() * 10
+        });
+      }
+    }
+
+    function spawnExplosionDebris(x, y) {
+      shockwaves.push({ x, y, radius: 10, maxRadius: Math.max(canvas.width, canvas.height) * 0.55, alpha: 1.0 });
+
+      for (let i = 0; i < 150; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 19 + 4;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 5,
+          char: Math.random() < 0.65 ? ASCII_GLYPHS[Math.floor(Math.random() * ASCII_GLYPHS.length)] : '✦',
+          color: Math.random() < 0.5 ? '#ff2a5f' : (Math.random() < 0.8 ? '#ffd166' : '#00d2ff'),
+          alpha: 1.0,
+          decay: 0.012 + Math.random() * 0.018,
+          scale: 16 + Math.random() * 14,
+          rot: Math.random() * Math.PI,
+          vRot: (Math.random() - 0.5) * 0.35
+        });
+      }
+    }
+
+    function triggerHeartLoss(side, index, posX, posY) {
+      // Stage 1: Shake wobble
+      heartWobbles[side][index] = 0.7; // 0.7s duration
+
+      // Stage 2: Detached falling heart physics
+      setTimeout(() => {
+        fallingHearts.push({
+          x: posX,
+          y: posY,
+          size: 32,
+          vx: (Math.random() - 0.5) * 4,
+          vy: -6,
+          gravity: 0.55,
+          rot: 0,
+          vRot: (Math.random() - 0.5) * 0.28,
+          alpha: 1.0
+        });
+      }, 700);
+    }
+
+    /* --------------------------------------------------------------------------
+       ZERO-TEXT INPUT HANDLERS & TURN LOGIC
+       -------------------------------------------------------------------------- */
+    function handlePointerMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      pointerPos.x = e.clientX - rect.left;
+      pointerPos.y = e.clientY - rect.top;
+    }
+
+    function handlePointerTap(e) {
+      sfx.init();
+
+      if (gameState === 'GAME_OVER') {
+        resetGame();
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+
+      // Find tapped chip on the ACTIVE side
+      for (let i = 0; i < chips.length; i++) {
+        const chip = chips[i];
+        if (chip.picked) continue;
+
+        // Check active turn eligibility
+        const isRedActive = (gameState === 'SETUP_P1' || (gameState === 'BATTLE' && activeTurn === 'RED'));
+        const isBlueActive = (gameState === 'SETUP_P2' || (gameState === 'BATTLE' && activeTurn === 'BLUE'));
+
+        if (chip.side === 'red' && !isRedActive) continue;
+        if (chip.side === 'blue' && !isBlueActive) continue;
+
+        const dist = Math.hypot(clickX - chip.screenX, clickY - chip.screenY);
+        if (dist <= chip.radius) {
+          onChipClicked(chip);
+          break;
+        }
+      }
+    }
+
+    function onChipClicked(chip) {
+      // PHASE 1: RED BOMB SETUP (P1 places 3 bombs on Red side)
+      if (gameState === 'SETUP_P1') {
+        if (chip.side !== 'red' || redBombsPlaced.includes(chip.index)) return;
+        sfx.playFlip();
+        redBombsPlaced.push(chip.index);
+        chip.hasBomb = true;
+
+        chip.targetFlipAngle = Math.PI;
+        setTimeout(() => { chip.targetFlipAngle = 0; }, 550);
+
+        if (redBombsPlaced.length === 3) {
+          setTimeout(() => { gameState = 'SETUP_P2'; }, 650);
+        }
+      }
+      // PHASE 2: BLUE BOMB SETUP (P2 places 3 bombs on Blue side)
+      else if (gameState === 'SETUP_P2') {
+        if (chip.side !== 'blue' || blueBombsPlaced.includes(chip.index)) return;
+        sfx.playFlip();
+        blueBombsPlaced.push(chip.index);
+        chip.hasBomb = true;
+
+        chip.targetFlipAngle = Math.PI;
+        setTimeout(() => { chip.targetFlipAngle = 0; }, 550);
+
+        if (blueBombsPlaced.length === 3) {
+          setTimeout(() => {
+            gameState = 'BATTLE';
+            activeTurn = 'RED';
+          }, 650);
+        }
+      }
+      // PHASE 3: ALTERNATING BATTLE PICKING
+      else if (gameState === 'BATTLE') {
+        chip.picked = true;
+
+        if (!chip.hasBomb) {
+          // SAFE PICK
+          sfx.playCrunch();
+          spawnSafeParticles(chip.screenX, chip.screenY);
+          setTimeout(() => {
+            activeTurn = activeTurn === 'RED' ? 'BLUE' : 'RED';
+          }, 450);
+        } else {
+          // BOMB EXPLOSION!
+          sfx.playBoom();
+          shakeTimer = 0.55; // Screen shake duration
+          spawnExplosionDebris(chip.screenX, chip.screenY);
+          chip.targetFlipAngle = Math.PI;
+
+          if (chip.side === 'red') {
+            redHearts--;
+            const heartX = 24 + redHearts * 36;
+            const heartY = 24;
+            triggerHeartLoss('red', redHearts, heartX, heartY);
+          } else {
+            blueHearts--;
+            const heartX = window.innerWidth - 24 - (3 - blueHearts) * 36;
+            const heartY = 24;
+            triggerHeartLoss('blue', blueHearts, heartX, heartY);
+          }
+
+          if (redHearts <= 0 || blueHearts <= 0) {
+            gameState = 'GAME_OVER';
+            sfx.playWinChime();
+            setTimeout(() => {
+              if (gameState === 'GAME_OVER') resetGame();
+            }, 3500);
+          } else {
+            setTimeout(() => {
+              activeTurn = activeTurn === 'RED' ? 'BLUE' : 'RED';
+            }, 600);
+          }
+        }
+      }
+    }
+
+    function resetGame() {
+      gameState = 'SETUP_P1';
+      redHearts = 3;
+      blueHearts = 3;
+      redBombsPlaced = [];
+      blueBombsPlaced = [];
+      activeTurn = 'RED';
+      particles = [];
+      shockwaves = [];
+      fallingHearts = [];
+      heartWobbles = { red: [0,0,0], blue: [0,0,0] };
+      initChips();
+    }
+
+    /* --------------------------------------------------------------------------
+       MINECRAFT PIXEL ART CANVAS RENDERER
+       -------------------------------------------------------------------------- */
+    function drawMinecraftHeart(ctx, x, y, size, isFull, shakeOffset = {x:0, y:0}) {
+      const cols = MINECRAFT_HEART_MATRIX[0].length;
+      const rows = MINECRAFT_HEART_MATRIX.length;
+      const pxSize = size / cols;
+
+      ctx.save();
+      ctx.translate(x + shakeOffset.x, y + shakeOffset.y);
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          let val = MINECRAFT_HEART_MATRIX[r][c];
+          if (val === 0) continue;
+
+          if (!isFull) {
+            if (val === 3 || val === 4 || val === 2) val = 5; // Empty gray fill
+          }
+
+          switch(val) {
+            case 1: ctx.fillStyle = '#000000'; break;
+            case 2: ctx.fillStyle = '#FFFFFF'; break;
+            case 3: ctx.fillStyle = '#FF1E42'; break;
+            case 4: ctx.fillStyle = '#B80D2A'; break;
+            case 5: ctx.fillStyle = '#262626'; break;
+          }
+          ctx.fillRect(c * pxSize, r * pxSize, pxSize + 0.5, pxSize + 0.5);
+        }
+      }
+      ctx.restore();
+    }
+
+    /* --------------------------------------------------------------------------
+       MAIN 60FPS RENDERING LOOP
+       -------------------------------------------------------------------------- */
+    function render(now) {
+      const time = now * 0.001;
+
+      // Handle DPI and Resizing
+      const dpr = window.devicePixelRatio || 1;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+      }
+      ctx.save();
+      ctx.scale(dpr, dpr);
+
+      // Handle Screen Shake on Explosion
+      let shakeX = 0, shakeY = 0;
+      if (shakeTimer > 0) {
+        shakeTimer -= 0.016;
+        shakeX = (Math.random() - 0.5) * 16;
+        shakeY = (Math.random() - 0.5) * 16;
+      }
+
+      // Clear Pure Black Background (#000000)
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.translate(shakeX, shakeY);
+
+      const headerH = 75;
+      const playH = h - headerH;
+      const halfW = w / 2;
+
+      // Determine active side lighting state
+      let isRedActive = (gameState === 'SETUP_P1' || (gameState === 'BATTLE' && activeTurn === 'RED'));
+      let isBlueActive = (gameState === 'SETUP_P2' || (gameState === 'BATTLE' && activeTurn === 'BLUE'));
+      if (gameState === 'GAME_OVER') {
+        isRedActive = redHearts > 0;
+        isBlueActive = blueHearts > 0;
+      }
+
+      // Draw Dual Neon Center Divider & Far Edge Accents
+      ctx.save();
+      // Far Left Red Edge Accent
+      ctx.strokeStyle = '#ff2a5f'; ctx.lineWidth = 2; ctx.globalAlpha = isRedActive ? 0.8 : 0.15;
+      ctx.beginPath(); ctx.moveTo(2, 0); ctx.lineTo(2, h); ctx.stroke();
+
+      // Far Right Blue Edge Accent
+      ctx.strokeStyle = '#00d2ff'; ctx.lineWidth = 2; ctx.globalAlpha = isBlueActive ? 0.8 : 0.15;
+      ctx.beginPath(); ctx.moveTo(w - 2, 0); ctx.lineTo(w - 2, h); ctx.stroke();
+
+      // Dual Center Lines
+      ctx.shadowBlur = 14;
+      // Center Left Line (Neon Red)
+      ctx.strokeStyle = '#ff2a5f'; ctx.lineWidth = isRedActive ? 3.5 : 1.5;
+      ctx.globalAlpha = isRedActive ? 0.95 : 0.18; ctx.shadowColor = '#ff2a5f';
+      ctx.beginPath(); ctx.moveTo(halfW - 2, headerH - 15); ctx.lineTo(halfW - 2, h - 15); ctx.stroke();
+
+      // Center Right Line (Neon Blue)
+      ctx.strokeStyle = '#00d2ff'; ctx.lineWidth = isBlueActive ? 3.5 : 1.5;
+      ctx.globalAlpha = isBlueActive ? 0.95 : 0.18; ctx.shadowColor = '#00d2ff';
+      ctx.beginPath(); ctx.moveTo(halfW + 2, headerH - 15); ctx.lineTo(halfW + 2, h - 15); ctx.stroke();
+      ctx.restore();
+
+      // Render Minecraft Hearts (Top-Left & Top-Right)
+      const heartSize = Math.min(34, Math.max(24, w * 0.035));
+      const heartSpacing = heartSize + 10;
+
+      // Red Hearts (Top Left)
+      for (let i = 0; i < 3; i++) {
+        let hShake = { x: 0, y: 0 };
+        if (heartWobbles.red[i] > 0) {
+          heartWobbles.red[i] -= 0.016;
+          hShake.x = Math.sin(time * 45) * 6;
+          hShake.y = Math.cos(time * 45) * 4;
+        }
+        drawMinecraftHeart(ctx, 24 + i * heartSpacing, 20, heartSize, i < redHearts, hShake);
+      }
+
+      // Blue Hearts (Top Right)
+      for (let i = 0; i < 3; i++) {
+        let hShake = { x: 0, y: 0 };
+        if (heartWobbles.blue[i] > 0) {
+          heartWobbles.blue[i] -= 0.016;
+          hShake.x = Math.sin(time * 45) * 6;
+          hShake.y = Math.cos(time * 45) * 4;
+        }
+        drawMinecraftHeart(ctx, w - 24 - (3 - i) * heartSpacing, 20, heartSize, i < blueHearts, hShake);
+      }
+
+      // Render Bomb Placement Pips under heart bars (Setup phase visual cue)
+      if (gameState === 'SETUP_P1' || gameState === 'SETUP_P2') {
+        // Red Pips
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc(36 + i * heartSpacing, 20 + heartSize + 12, 4, 0, Math.PI * 2);
+          ctx.fillStyle = i < redBombsPlaced.length ? '#ff2a5f' : '#331018';
+          ctx.fill();
+        }
+        // Blue Pips
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc(w - 24 - (3 - i) * heartSpacing + 12, 20 + heartSize + 12, 4, 0, Math.PI * 2);
+          ctx.fillStyle = i < blueBombsPlaced.length ? '#00d2ff' : '#082533';
+          ctx.fill();
+        }
+      }
+
+      // Calculate Grid Layout for Chips (3x3 per side, ~88% cell fill)
+      const gridW = halfW - 28;
+      const gridH = playH - 24;
+      const cellW = gridW / 3;
+      const cellH = gridH / 3;
+      const chipRadius = Math.min(cellW, cellH) * 0.52; // Large size
+
+      // Render 18 3D ASCII Potato Chips
+      for (let i = 0; i < chips.length; i++) {
+        const chip = chips[i];
+
+        // Screen center calculations
+        const sideOffsetX = chip.side === 'red' ? 14 : halfW + 14;
+        chip.screenX = sideOffsetX + chip.col * cellW + cellW / 2;
+        chip.screenY = headerH + chip.row * cellH + cellH / 2;
+        chip.radius = chipRadius;
+
+        // Active / Inactive side lighting & interaction
+        const isActiveSide = chip.side === 'red' ? isRedActive : isBlueActive;
+        const sideAlpha = isActiveSide ? 1.0 : 0.14;
+
+        if (chip.picked && chip.dissolve <= 0) continue;
+
+        // Dissolve / Shrink animation for safe picked chips
+        if (chip.picked && !chip.hasBomb) {
+          chip.dissolve -= 0.08;
+        }
+
+        // Pointer hover tilt
+        const distToPointer = Math.hypot(pointerPos.x - chip.screenX, pointerPos.y - chip.screenY);
+        chip.isHovered = isActiveSide && (distToPointer <= chipRadius);
+
+        // 3D Flip angle interpolation
+        chip.flipAngle += (chip.targetFlipAngle - chip.flipAngle) * 0.16;
+
+        const targetSpeed = chip.isHovered ? 0.048 : chip.baseSpeed;
+        chip.currentSpeed += (targetSpeed - chip.currentSpeed) * 0.1;
+        chip.rotY += chip.currentSpeed;
+
+        ctx.save();
+        ctx.globalAlpha = sideAlpha * Math.max(0, chip.dissolve);
+        ctx.translate(chip.screenX, chip.screenY);
+
+        const cosFlip = Math.cos(chip.flipAngle);
+        const isBackFace = cosFlip < 0;
+
+        ctx.scale(Math.abs(cosFlip) * chip.dissolve, chip.dissolve);
+
+        if (!isBackFace) {
+          // FRONT FACE: LARGE 3D HYPERBOLIC PARABOLOID CHIP
+          const cosX = Math.cos(chip.rotX), sinX = Math.sin(chip.rotX);
+          const cosY = Math.cos(chip.rotY), sinY = Math.sin(chip.rotY);
+          const bobY = Math.sin(time * 2.8 + chip.globalIdx) * 2.8;
+
+          const fov = chipRadius * 1.65;
+          const projected = [];
+          const waveSpeed = time * 4.0 + chip.globalIdx;
+
+          for (let pIdx = 0; pIdx < chip.points.length; pIdx++) {
+            const p = chip.points[pIdx];
+
+            let x1 = p.x * cosY - p.z * sinY;
+            let z1 = p.x * sinY + p.z * cosY;
+            let y1 = p.y;
+
+            let y2 = y1 * cosX - z1 * sinX;
+            let z2 = y1 * sinX + z1 * cosX;
+            let x2 = x1;
+
+            y2 += bobY * 0.03;
+
+            let nx1 = p.nx * cosY - p.nz * sinY;
+            let nz1 = p.nx * sinY + p.nz * cosY;
+            let ny2 = p.ny * cosX - nz1 * sinX;
+            let dot = Math.max(0.18, nx1 * 0.5 + ny2 * (-0.7) + nz1 * 0.85);
+
+            const wavePhase = Math.sin(5.0 * (p.u + p.v) - waveSpeed);
+            const isWave = wavePhase > 0.83;
+
+            const depth = z2 + 3.2;
+            const scale = fov / depth;
+            const px = x2 * scale;
+            const py = y2 * scale;
+
+            projected.push({ px, py, depth, dot, isWave, p, scale });
+          }
+
+          projected.sort((a, b) => b.depth - a.depth);
+
+          // Render Toasted Golden Palette & Glint Sparkles
+          for (let pIdx = 0; pIdx < projected.length; pIdx++) {
+            const item = projected[pIdx];
+            const { px, py, dot, isWave, p, scale } = item;
+
+            let charStr = ASCII_GLYPHS[p.charIdx % ASCII_GLYPHS.length];
+            if (isWave && Math.random() < 0.28) {
+              charStr = ASCII_GLYPHS[Math.floor(Math.random() * ASCII_GLYPHS.length)];
+            }
+
+            let r = 255, g = 209, b = 102;
+            if (isWave || chip.isHovered) {
+              r = 255; g = 243; b = 176;
+            } else {
+              r = Math.floor(140 + dot * 115);
+              g = Math.floor(70 + dot * 135);
+              b = Math.floor(15 + dot * 50);
+            }
+
+            // Game over celebratory sparkle burst
+            if (gameState === 'GAME_OVER') {
+              if (Math.random() < 0.08) { charStr = '✦'; r = 255; g = 255; b = 255; }
+            }
+
+            const fontSize = Math.max(8, Math.min(15, scale * 0.068));
+            ctx.font = `${isWave ? 'bold ' : ''}${fontSize}px monospace`;
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(1.0, 4.5 / item.depth)})`;
+            ctx.fillText(charStr, px, py);
+          }
+        } else {
+          // BACK FACE: CRIMSON/CYAN 3D ASCII BOMB
+          ctx.font = 'bold 13px monospace';
+          const bombColor = chip.side === 'red' ? '#ff2a5f' : '#00d2ff';
+          ctx.fillStyle = bombColor;
+          for (let bIdx = 0; bIdx < bombGeometry.length; bIdx++) {
+            const bp = bombGeometry[bIdx];
+            const scale = chipRadius * 0.72;
+            ctx.fillText(bp.char, bp.x * scale, bp.y * scale);
+          }
+        }
+
+        ctx.restore();
+      }
+
+      // Render Shockwaves
+      for (let i = shockwaves.length - 1; i >= 0; i--) {
+        const sw = shockwaves[i];
+        sw.radius += (sw.maxRadius - sw.radius) * 0.16;
+        sw.alpha -= 0.04;
+        if (sw.alpha <= 0) { shockwaves.splice(i, 1); continue; }
+        ctx.beginPath();
+        ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 42, 95, ${sw.alpha})`;
+        ctx.lineWidth = 6;
+        ctx.stroke();
+      }
+
+      // Render Particle Physics & Flying ASCII Shards
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.28;
+        p.alpha -= p.decay;
+        if (p.rot !== undefined) p.rot += p.vRot;
+
+        if (p.alpha <= 0) { particles.splice(i, 1); continue; }
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        if (p.rot !== undefined) ctx.rotate(p.rot);
+        ctx.font = `bold ${p.scale}px monospace`;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, p.alpha);
+        ctx.fillText(p.char, 0, 0);
+        ctx.restore();
+      }
+
+      // Render Falling Detached Minecraft Hearts
+      for (let i = fallingHearts.length - 1; i >= 0; i--) {
+        const fh = fallingHearts[i];
+        fh.x += fh.vx; fh.y += fh.vy;
+        fh.vy += fh.gravity;
+        fh.rot += fh.vRot;
+
+        if (fh.y > h + 60) { fallingHearts.splice(i, 1); continue; }
+
+        ctx.save();
+        ctx.translate(fh.x + fh.size / 2, fh.y + fh.size / 2);
+        ctx.rotate(fh.rot);
+        drawMinecraftHeart(ctx, -fh.size / 2, -fh.size / 2, fh.size, true);
+        ctx.restore();
+      }
+
+      ctx.restore();
+      requestAnimationFrame(render);
+    }
+
+    // Attach Input Event Listeners
+    window.addEventListener('mousemove', handlePointerMove);
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 0) handlePointerMove(e.touches[0]);
+    });
+    canvas.addEventListener('click', handlePointerTap);
+
+    // Initialize Game
+    initChips();
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>
